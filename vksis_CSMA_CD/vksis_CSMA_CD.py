@@ -6,6 +6,8 @@ import struct
 import time
 from func_algorithms import*
 import os
+import random
+
 
 def interface(list=False,**kwargs):
     hostname = kwargs.get('hostname',gethostname())
@@ -32,18 +34,21 @@ class Frame:
 
     def __init__(self,**kwargs):
         self.type = kwargs.get('frame_type',FrameType.Data)
-        self.packet = kwargs.get('packet',b'')
-        self.data = kwargs.get('data',b'')
+        data = kwargs.get('data',b'')
+        self.data = data if type(data) == type(bytes()) else data.encode('utf-8')
+        self.frame = kwargs.get('frame',b'')
+        if self.frame != b'':
+            self.unpack()
 
     def pack(self):
-        self.packet = struct.pack('!B',self.type.value) + self.data
-        return self.packet
+        self.frame = struct.pack('!B',self.type.value) + self.data
+        return self.frame
 
-    def unpack(self, packet=None):
-        if packet:
-            self.packet = packet
-        self.type = struct.unpack('!B',self.packet[:1])[0]
-        self.data = self.packet[1:]
+    def unpack(self, frame=None):
+        if frame:
+            self.frame = frame
+        self.type = FrameType( struct.unpack('!B',self.frame[:1])[0] )
+        self.data = self.frame[1:]
         return(self.type,self.data)
 
     def __repr__(self):
@@ -51,6 +56,9 @@ class Frame:
         
     def __str__(self):
         return self.data.decode(encoding='utf-8')
+
+    def __bytes__(self):
+        return self.frame if self.frame != b'' else self.pack()
   
 
 class Host:
@@ -61,10 +69,12 @@ class Host:
         self.mreq = b''
         self.net_interf = interface()
         self.group_sock = socket(AF_INET,SOCK_DGRAM,IPPROTO_UDP)
-        self.group_sock.bind((self.net_interface,port)) 
+        self.group_sock.bind((self.net_interf,self.port)) 
         self.send_sock = socket(AF_INET,SOCK_DGRAM,IPPROTO_UDP)
         self.__join_group()
         self.send_period = kwargs.get('send_period',2)
+        self.minsend_freq = 1
+        self.maxsend_freq = 20
         self.sending_thread = Thread(target=self.sending_routine,args=())
 
     def __join_group(self):
@@ -78,8 +88,8 @@ class Host:
     def __unjoin_group(self):
         self.group_sock.setsockopt(SOL_IP,IP_DROP_MEMBERSHIP,self.mreq)
 
-    def group_send(self,sock,msg):
-        self.sock.sendto(msg,(self.group,self.port))
+    def group_send(self,msg):
+        self.send_sock.sendto(msg,(self.group,self.port))
 
     def send(self,msg,addr):
         self.send_sock.sendto(msg,addr)
@@ -87,13 +97,22 @@ class Host:
     def recv(self,num):
         return self.group_sock.recvfrom(num)
 
+    def sending_routine(self):
+        nextframe_t = 0
+        self.group_send(bytes(Frame(type=FrameType.Greeting)))
+        #while True:
+        nextframe_t = random.uniform(self.minsend_freq,self.maxsend_freq)
+        self.group_send(bytes(Frame(data='data')))
+
+
     def run(self):
         self.sending_thread.start()
         while True:
-            frame = Frame(packet=self.group_sock.recv(1024))
+            recv_frame,addr=self.recv(1024)
+            print(repr(Frame(frame=recv_frame)))
 
 
 
 if __name__ == '__main__':
-     #host = Host(sys.argv[1],sys.argv[2])
-  
+     host = Host(sys.argv[1],sys.argv[2])
+     host.run()
