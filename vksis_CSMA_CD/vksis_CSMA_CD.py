@@ -33,7 +33,7 @@ class FrameType(Enum):
 class Frame:
 
     def __init__(self,**kwargs):
-        self.type = kwargs.get('frame_type',FrameType.Data)
+        self.type = kwargs.get('type',FrameType.Data)
         data = kwargs.get('data',b'')
         self.data = data if type(data) == type(bytes()) else data.encode('utf-8')
         self.frame = kwargs.get('frame',b'')
