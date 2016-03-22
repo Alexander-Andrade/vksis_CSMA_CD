@@ -5,6 +5,7 @@ from enum import Enum,unique
 import struct
 import time
 from func_algorithms import*
+import os
 
 def interface(list=False,**kwargs):
     hostname = kwargs.get('hostname',gethostname())
@@ -27,24 +28,29 @@ class FrameType(Enum):
     Jam = 3
 
 
-class Packet:
+class Frame:
 
     def __init__(self,**kwargs):
-        self.frame_type = kwargs.get('frame_type',FrameType.Data)
+        self.type = kwargs.get('frame_type',FrameType.Data)
         self.packet = kwargs.get('packet',b'')
         self.data = kwargs.get('data',b'')
 
     def pack(self):
-        self.packet = struct.pack('!B',self.frame_type.value) + self.data
+        self.packet = struct.pack('!B',self.type.value) + self.data
         return self.packet
 
     def unpack(self, packet=None):
         if packet:
             self.packet = packet
-        self.frame_type = struct.unpack('!B',self.packet[:1])[0]
+        self.type = struct.unpack('!B',self.packet[:1])[0]
         self.data = self.packet[1:]
-        return(self.frame_type,self.data)
+        return(self.type,self.data)
 
+    def __repr__(self):
+            return 'Frame ({},{})'.format(self.type, self.data.decode(encoding='utf-8'))
+        
+    def __str__(self):
+        return self.data.decode(encoding='utf-8')
   
 
 class Host:
@@ -58,7 +64,8 @@ class Host:
         self.group_sock.bind((self.net_interface,port)) 
         self.send_sock = socket(AF_INET,SOCK_DGRAM,IPPROTO_UDP)
         self.__join_group()
-        self.send_period = kwargs.get('send_timeout',2)
+        self.send_period = kwargs.get('send_period',2)
+        self.sending_thread = Thread(target=self.sending_routine,args=())
 
     def __join_group(self):
         #mreq = struct.pack('4sl',inet_aton(self.group),INADDR_ANY)
@@ -80,5 +87,13 @@ class Host:
     def recv(self,num):
         return self.group_sock.recvfrom(num)
 
+    def run(self):
+        self.sending_thread.start()
+        while True:
+            frame = Frame(packet=self.group_sock.recv(1024))
+
+
+
 if __name__ == '__main__':
-     host = Host(sys.argv[1],sys.argv[2])
+     #host = Host(sys.argv[1],sys.argv[2])
+  
