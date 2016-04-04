@@ -78,7 +78,7 @@ class Host:
         self.group_sock.bind((self.interf_ip,self.group_port)) 
         self.send_sock = socket(AF_INET,SOCK_DGRAM,IPPROTO_UDP)
         self.__join_group()
-        #time to send the frame and to leave the medium
+        #time of the frame transfer and to leave the medium
         self.frame_transf_interv = kwargs.get('frame_transf_interv',0.7)
         self.frame_recv_interv
         self.last_sending_timestemp = 0
@@ -86,7 +86,7 @@ class Host:
         self.inter_frame_gap = kwargs.get('inter_frame_gap',0.5)
         self.min_frame_gap = kwargs.get('min_frame_gap',self.frame_transf_interv)
         self.max_frame_gap = kwargs.get('max_frame_gap',6.0)
-        self.n_sending_attempts = 16
+        self.max_sending_attempts = 16
         self.peers = set()
         self.actions = {FrameType.Data : self.handle_data,
                         FrameType.Greeting : self.handle_greeting,
@@ -116,16 +116,16 @@ class Host:
     def recv(self,num):
         return self.group_sock.recvfrom(num)
 
-    def handle_data(self,peer_addr,frame):
+    def handle_data(self,peer_ident,frame):
         print('data action')
     
-    def handle_greeting(self,peer_addr,frame):
-        print('greeting action')
+    def handle_greeting(self,peer_ident,frame):
+        self.peers.add(peer_ident)
 
-    def handle_leaving(self,peer_addr,frame):
-        print('leaving action')
+    def handle_leaving(self,peer_ident,frame):
+        self.peers.remove(peer_ident)
 
-    def handle_jam(self,peer_addr,frame):
+    def handle_jam(self,peer_ident,frame):
         print('jam action')
         
     def is_thishost_sender(self,sender_ident):
@@ -134,15 +134,18 @@ class Host:
     def is_medium_busy(self):
         return self.frame_transf_interv > time.time() - self.last_sending_timestemp
 
-    def frame_sending_routine(self):
-        nextframe_t = 0
-        #notify all devices on the bus
-        self.group_send(bytes(Frame(host_id=self.id,type=FrameType.Greeting)))
+    def is_collision(self):
+        return self.frame_transf_interv > time.time() - self.last_recv_timestemp
+
+    def calc_exp_delay(self,n_transf_attempts):
+        k = min(n_transf_attempts,10)
+        r = random.randrange(0,math.pow(2,k))
+        return r * self.frame_transf_interv
+
+
+    def send_frame(self):
+        n_transf_attempts = 0
         while True:
-            #randomize sending activity
-            nextframe_t = random.uniform(self.min_frame_gap, self.max_frame_gap)
-            #waiting when next frame will be ready to transfer
-            time.sleep(nextframe_t)
             #checking if medium(bus) is busy (pooling)
             if self.is_medium_busy():
                 continue
@@ -154,6 +157,34 @@ class Host:
             self.last_sending_timestemp = time.time()
             #checking collisions
             #collision is when time from the last received frame not elapsed
+            if self.is_collision():
+                print('collision detected')
+                #sending jam-signal
+                self.group_send(bytes(Frame(host_id=self.id,type=FrameType.Jam)))
+                n_transf_attempts += 1
+                if n_transf_attempts > self.max_sending_attempts:
+                    #fail to send frame
+                    print('fail to send frame')
+                #calculate exponential delay 
+                exp_delay = self.calc_exp_delay(n_transf_attempts)
+                #and wait this delay
+                time.sleep(exp_delay)
+
+
+    def delay_to_prepare_frame(self):
+        #randomize sending activity
+        nextframe_t = random.uniform(self.min_frame_gap, self.max_frame_gap)
+        #waiting when next frame will be ready to transfer
+        time.sleep(nextframe_t)
+
+    def frame_sending_routine(self):
+        #notify all devices on the bus
+        self.group_send(bytes(Frame(host_id=self.id,type=FrameType.Greeting)))
+        while True:
+            self.delay_to_prepare_frame()    
+            self.send_frame()
+            
+
 
 
     def run(self):
@@ -169,7 +200,6 @@ class Host:
                 continue
             #mark that the foreign frame arrived
             self.last_recv_timestemp = time.time()
-             
             print(repr(frame))
             self.actions[frame.type](sender_ident,frame)
 
