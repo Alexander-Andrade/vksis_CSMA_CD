@@ -65,24 +65,32 @@ class Frame:
     def __bytes__(self):
         return self.frame if self.frame != b'' else self.pack()
   
-    class Peer:
 
-        def __init__(ip,port,id):
-            self.ip = ip
-            self.port = port
-            self.id = id
+class Peer:
+    def __init__(addr,id):
+        self.from_addr_id(addr,id)
 
-        def to_addr(self):
-            pass
+    def to_addr(self):
+        return (self.ip,self.port)
 
-        def from_addr_id(addr,id):
-            pass
+    def from_addr_id(self,addr,id):
+        self.ip = addr[0]
+        self.port = addr[1]
+        self.id = id
 
-        def to_bytes(self):
-            pass
+    def to_bytes(self):
+        return inet_aton(self.ip) + struct.pack('!HH',self.port,self.id)    
+    
+    def __bytes__(self):
+        return self.to_bytes() 
 
-        def from_bytes(self):
-            pass
+    def from_bytes(self,byte_peer):
+        self.ip = inet_ntoa(byte_peer[:4])
+        self.port,self.id = struct.unpack('!HH',byte_peer[4:])
+
+    def __repr__(self):
+        return 'Peer (ip={},port={},id={})'.format(self.ip,self.port,self.id)
+
 
 class Host:
 
@@ -92,8 +100,7 @@ class Host:
         self.group_port = int(group_port)
         self.group = group
         self.mreq = b''
-        #self.interf_ip = interface_ip()
-        self.interf_ip = '127.0.0.1'
+        self.interf_ip = interface_ip()
         self.group_sock = socket(AF_INET,SOCK_DGRAM,IPPROTO_UDP)
         #can listen a busy port 
         self.group_sock.setsockopt(SOL_SOCKET,SO_REUSEADDR,1)
@@ -121,7 +128,6 @@ class Host:
 
 
     def __join_group(self):
-        #mreq = struct.pack('4sl',inet_aton(self.group),INADDR_ANY)
         self.mreq = struct.pack('4s4s',inet_aton(self.group),inet_aton(self.interf_ip))
         self.group_sock.setsockopt(IPPROTO_IP,IP_ADD_MEMBERSHIP,self.mreq)
         #default
@@ -173,19 +179,19 @@ class Host:
         pass
 
 
-    def handle_leaving(self,peer_ident,frame):
-        if peer_ident in self.peers:
-            self.peers.remove(peer_ident)
+    def handle_leaving(self,peer_,frame):
+        if peer in self.peers:
+            self.peers.remove(peer)
 
-    def handle_jam(self,peer_ident,frame):
+    def handle_jam(self,peer,frame):
         #stop sending frames while is collision on the media(bus)
         self.on_jam_come_event.clear()
         time.sleep(self.frame_transf_interv)
         #resume sending thread
         self.on_jam_come_event.set()
         
-    def is_thishost_sender(self,sender_ident):
-        return sender_ident[0] == self.interf_ip and sender_ident[1] == self.private_sock.getsockname()[1] and self.id==sender_ident[2]
+    def is_thishost_sender(self,peer):
+        return peer.ip == self.interf_ip and peer.port == self.private_sock.getsockname()[1] and self.id==peer.id
          
     def is_medium_busy(self):
         return self.frame_transf_interv > time.time() - self.last_sending_timestemp
@@ -198,14 +204,6 @@ class Host:
         r = random.randrange(0,math.pow(2,k))
         return r * self.frame_transf_interv
 
-    @staticmethod
-    def peer_ident_to_addr(peer_ident):
-        return (peer_ident[0],peer_ident[1])
-
-    @staticmethod
-    def addr_to_peer_ident(addr,host_id):
-        return (addr[0],addr[1],host_id)
-
     def send_frame(self):
         n_transf_attempts = 0
         while True:
@@ -216,7 +214,7 @@ class Host:
             time.sleep(self.inter_frame_gap)
             #begin transfer  and select randomly any peer to send frame
             peer_ident = random.choice(self.peers)
-            self.send(bytes(Frame(host_id=self.id,data='data')),Host.peer_ident_to_addr(peer_ident))
+            self.send(bytes(Frame(host_id=self.id,data='data')),peer_ident.to_addr())
             #catch sending time stemp
             self.last_sending_timestemp = time.time()
             #checking collisions
@@ -253,20 +251,20 @@ class Host:
         #sender_add = sender_ip + sender_port
         recv_frame,sender_addr=self.recv(1024)
         frame = Frame(frame=recv_frame)
-        #sender_ident = sender_ip + sender_port + sender_id (sender_id is necessary for abylity to hang several processes to the port)
-        sender_ident = (sender_addr[0],sender_addr[1],frame.host_id)
-        return (frame,sender_ident)
+        #peer = sender_ip + sender_port + sender_id (sender_id is necessary for abylity to hang several processes to the port)
+        peer = Peer(sender_addr,frame.host_id)
+        return (frame,peer)
 
     def group_listening_and_replies(self):
         while True:
-            frame,sender_ident=self.listen_bus()
+            frame,peer=self.listen_bus()
             #test if frame is from this host
-            if self.is_thishost_sender(sender_ident):
+            if self.is_thishost_sender(peer):
                 continue
             #mark that the foreign frame arrived
             self.last_recv_timestemp = time.time()
             print(repr(frame))
-            self.actions[frame.type](sender_ident,frame)
+            self.actions[frame.type](peer,frame)
 
 
     def run(self):
