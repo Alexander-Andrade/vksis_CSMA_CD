@@ -1,6 +1,6 @@
 from socket import* 
 import sys
-from threading import Thread
+import threading
 from enum import Enum,unique
 import struct
 import time
@@ -26,9 +26,10 @@ def interface_ip(list=False,**kwargs):
 @unique
 class FrameType(Enum):
     Data = 0
-    Greeting = 1
-    Leaving = 2
-    Jam = 3
+    GreetingRequest = 1
+    GreetingReply = 2
+    Leaving = 3
+    Jam = 4
 
 
 class Frame:
@@ -64,6 +65,24 @@ class Frame:
     def __bytes__(self):
         return self.frame if self.frame != b'' else self.pack()
   
+    class Peer:
+
+        def __init__(ip,port,id):
+            self.ip = ip
+            self.port = port
+            self.id = id
+
+        def to_addr(self):
+            pass
+
+        def from_addr_id(addr,id):
+            pass
+
+        def to_bytes(self):
+            pass
+
+        def from_bytes(self):
+            pass
 
 class Host:
 
@@ -73,34 +92,38 @@ class Host:
         self.group_port = int(group_port)
         self.group = group
         self.mreq = b''
-        self.interf_ip = interface_ip()
+        #self.interf_ip = interface_ip()
+        self.interf_ip = '127.0.0.1'
         self.group_sock = socket(AF_INET,SOCK_DGRAM,IPPROTO_UDP)
+        #can listen a busy port 
+        self.group_sock.setsockopt(SOL_SOCKET,SO_REUSEADDR,1)
         self.group_sock.bind((self.interf_ip,self.group_port)) 
-        self.send_sock = socket(AF_INET,SOCK_DGRAM,IPPROTO_UDP)
+        self.private_sock = socket(AF_INET,SOCK_DGRAM,IPPROTO_UDP)
         self.__join_group()
         #time of the frame transfer and to leave the medium
         self.frame_transf_interv = kwargs.get('frame_transf_interv',0.7)
-        self.frame_recv_interv
         self.last_sending_timestemp = 0
         self.last_recv_timestemp = 0
         self.inter_frame_gap = kwargs.get('inter_frame_gap',0.5)
         self.min_frame_gap = kwargs.get('min_frame_gap',self.frame_transf_interv)
         self.max_frame_gap = kwargs.get('max_frame_gap',6.0)
         self.max_sending_attempts = 16
-        self.peers = set()
+        self.peers = []
+        self.max_greeting_reply_time = 3
         self.actions = {FrameType.Data : self.handle_data,
-                        FrameType.Greeting : self.handle_greeting,
+                        FrameType.GreetingRequest : self.handle_greeting_reguest,
+                        FrameType.GreetingReply : self.handle_greeting_reply,
                         FrameType.Leaving : self.handle_leaving,
                         FrameType.Jam : self.handle_jam}
-        self.frame_sending_thread = Thread(target=self.frame_sending_routine,args=())
+        self.on_jam_come_event = threading.Event()
+        self.on_jam_come_event.set()  
+        self.frame_sending_thread = threading.Thread(target=self.frame_sending_routine,args=(self.on_jam_come_event,))
 
 
     def __join_group(self):
         #mreq = struct.pack('4sl',inet_aton(self.group),INADDR_ANY)
         self.mreq = struct.pack('4s4s',inet_aton(self.group),inet_aton(self.interf_ip))
         self.group_sock.setsockopt(IPPROTO_IP,IP_ADD_MEMBERSHIP,self.mreq)
-        #can listen a busy port 
-        self.group_sock.setsockopt(SOL_SOCKET,SO_REUSEADDR,1)
         #default
         self.group_sock.setsockopt(IPPROTO_IP,IP_MULTICAST_TTL,struct.pack('b',1))
 
@@ -108,28 +131,61 @@ class Host:
         self.group_sock.setsockopt(SOL_IP,IP_DROP_MEMBERSHIP,self.mreq)
 
     def group_send(self,msg):
-        self.send_sock.sendto(msg,(self.group,self.group_port))
+        self.private_sock.sendto(msg,(self.group,self.group_port))
 
     def send(self,msg,addr):
-        self.send_sock.sendto(msg,addr)
+        self.private_sock.sendto(msg,addr)
 
     def recv(self,num):
         return self.group_sock.recvfrom(num)
 
     def handle_data(self,peer_ident,frame):
-        print('data action')
+        #skip data
+        pass
     
-    def handle_greeting(self,peer_ident,frame):
-        self.peers.add(peer_ident)
+    def reg_unknown_peer(self,peer_ident):
+        if peer_ident not in self.peers:
+            self.peers.append(peer_ident)
+
+    @staticmethod
+    def list_to_bytes(list,type_symb):
+        pass
+
+    @staticmethod
+    def bytes_to_list(list,type_symb):
+        pass
+
+    def handle_greeting_reguest(self,peer_ident,frame):
+        self.reg_unknown_peer(peer_ident)
+        #send self peer-list as greeting reply
+        #set timeout and listen bus, if enother peer managed first
+        reply_after_t = random.uniform(0, self.max_greeting_reply_time)   
+        #listen bus with timeout
+        self.group_sock.settimeout(reply_after_t)
+        try:
+            self.group_sock.recvfrom(1024)
+        except OSError as e:
+            #this host is first-> send peers-list
+            #self.
+            pass
+
+    def handle_greeting_reply(self,peer_ident,frame):
+        pass
+
 
     def handle_leaving(self,peer_ident,frame):
-        self.peers.remove(peer_ident)
+        if peer_ident in self.peers:
+            self.peers.remove(peer_ident)
 
     def handle_jam(self,peer_ident,frame):
-        print('jam action')
+        #stop sending frames while is collision on the media(bus)
+        self.on_jam_come_event.clear()
+        time.sleep(self.frame_transf_interv)
+        #resume sending thread
+        self.on_jam_come_event.set()
         
     def is_thishost_sender(self,sender_ident):
-        return sender_ident[0] == self.interf_ip and sender_ident[1] == self.send_sock.getsockname()[1] and self.id==sender_ident[2]
+        return sender_ident[0] == self.interf_ip and sender_ident[1] == self.private_sock.getsockname()[1] and self.id==sender_ident[2]
          
     def is_medium_busy(self):
         return self.frame_transf_interv > time.time() - self.last_sending_timestemp
@@ -142,6 +198,13 @@ class Host:
         r = random.randrange(0,math.pow(2,k))
         return r * self.frame_transf_interv
 
+    @staticmethod
+    def peer_ident_to_addr(peer_ident):
+        return (peer_ident[0],peer_ident[1])
+
+    @staticmethod
+    def addr_to_peer_ident(addr,host_id):
+        return (addr[0],addr[1],host_id)
 
     def send_frame(self):
         n_transf_attempts = 0
@@ -151,8 +214,9 @@ class Host:
                 continue
             #waiting for Inter Frame Gap elapced
             time.sleep(self.inter_frame_gap)
-            #begin transfer
-            self.group_send(bytes(Frame(host_id=self.id,data='data')))
+            #begin transfer  and select randomly any peer to send frame
+            peer_ident = random.choice(self.peers)
+            self.send(bytes(Frame(host_id=self.id,data='data')),Host.peer_ident_to_addr(peer_ident))
             #catch sending time stemp
             self.last_sending_timestemp = time.time()
             #checking collisions
@@ -177,24 +241,25 @@ class Host:
         #waiting when next frame will be ready to transfer
         time.sleep(nextframe_t)
 
-    def frame_sending_routine(self):
-        #notify all devices on the bus
-        self.group_send(bytes(Frame(host_id=self.id,type=FrameType.Greeting)))
+    def frame_sending_routine(self,on_jam_come_event):
         while True:
-            self.delay_to_prepare_frame()    
-            self.send_frame()
+            self.delay_to_prepare_frame()
+            #stop sending frames when jam sygnal arrived
+            on_jam_come_event.wait()
+            if self.peers: 
+                self.send_frame()
             
+    def listen_bus(self):
+        #sender_add = sender_ip + sender_port
+        recv_frame,sender_addr=self.recv(1024)
+        frame = Frame(frame=recv_frame)
+        #sender_ident = sender_ip + sender_port + sender_id (sender_id is necessary for abylity to hang several processes to the port)
+        sender_ident = (sender_addr[0],sender_addr[1],frame.host_id)
+        return (frame,sender_ident)
 
-
-
-    def run(self):
-        self.frame_sending_thread.start()
+    def group_listening_and_replies(self):
         while True:
-            #sender_add = sender_ip + sender_port
-            recv_frame,sender_addr=self.recv(1024)
-            frame = Frame(frame=recv_frame)
-            #sender_ident = sender_ip + sender_port + sender_id (sender_id is necessary for abylity to hang several processes to the port)
-            sender_ident = (sender_addr[0],sender_addr[1],frame.host_id)
+            frame,sender_ident=self.listen_bus()
             #test if frame is from this host
             if self.is_thishost_sender(sender_ident):
                 continue
@@ -204,7 +269,20 @@ class Host:
             self.actions[frame.type](sender_ident,frame)
 
 
+    def run(self):
+        #notify all devices on the bus
+        self.group_send(bytes(Frame(host_id=self.id,type=FrameType.GreetingRequest)))
+        #start sending some data to the peers
+        self.frame_sending_thread.start()
+        #listen bus and act accordinatly
+        self.group_listening_and_replies()
+
+
 if __name__ == '__main__':
-     random.seed()
-     host = Host(sys.argv[1],sys.argv[2])
-     host.run()
+     li = [100,1,3]
+     bli = bytearray(li)
+     print(bli)
+     print(list(bli))
+     #random.seed()
+     #host = Host(sys.argv[1],sys.argv[2])
+     #host.run()
