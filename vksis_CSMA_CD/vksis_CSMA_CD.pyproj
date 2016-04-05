@@ -25,7 +25,25 @@
     <EnableUnmanagedDebugging>false</EnableUnmanagedDebugging>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="Frame.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="FrameType.py">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="func_algorithms.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Host.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="MixedSocket.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="net_interface.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Peer.py">
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="vksis_CSMA_CD.py" />
