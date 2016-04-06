@@ -46,9 +46,6 @@ class Host:
     def group_send(self,msg):
         self.private_sock.sendto(msg,(self.group,self.group_port))
 
-    def send(self,msg,addr):
-        self.private_sock.sendto(msg,addr)
-
     def handle_data(self,peer,frame):
         #skip data
         pass
@@ -57,7 +54,6 @@ class Host:
         if peer not in self.peers:
             self.peers.append(peer)
     
-
     def handle_greeting_reguest(self,peer,frame):
         self.reg_unknown_peer(peer)
         #send self peer-list as greeting reply
@@ -69,13 +65,13 @@ class Host:
             self.group_sock.recvfrom(1024)
         except OSError as e:
             #this host is first-> send peers-list
-            self.private_sock.obj_sendto(self.peers,peer.to_addr())
+            self.private_sock.send_frame_to(Frame(host_id=self.id , type=FrameType.GreetingReply, data=self.peers), peer.to_addr())
         finally:
             self.group_sock.settimeout(None)
 
     def handle_greeting_reply(self,peer,frame):
         #get peers-list from other peer 
-        self.peers.extend(self.group_sock.obj_recvfrom())
+        self.peers.extend(self.group_sock.recv_frame_from(type=FrameType.GreetingReply) )
 
 
     def handle_leaving(self,peer,frame):
@@ -114,7 +110,7 @@ class Host:
             time.sleep(self.inter_frame_gap)
             #begin transfer  and select randomly any peer to send frame
             peer_ident = random.choice(self.peers)
-            self.send(bytes(Frame(host_id=self.id,data='data')),peer_ident.to_addr())
+            self.private_sock.send_frame_to(Frame(host_id=self.id, data='data'), peer_ident.to_addr())
             #catch sending time stemp
             self.last_sending_timestemp = time.time()
             #checking collisions
@@ -122,7 +118,7 @@ class Host:
             if self.is_collision():
                 print('collision detected')
                 #sending jam-signal
-                self.group_send(bytes(Frame(host_id=self.id,type=FrameType.Jam)))
+                self.group_sock.send_frame_to(Frame(host_id=self.id,type=FrameType.Jam), (self.group, self.group_port))
                 n_transf_attempts += 1
                 if n_transf_attempts > self.max_sending_attempts:
                     #fail to send frame
@@ -169,7 +165,7 @@ class Host:
 
     def run(self):
         #notify all devices on the bus
-        self.group_send(bytes(Frame(host_id=self.id,type=FrameType.GreetingRequest)))
+        self.group_sock.send_frame_to(Frame(host_id=self.id,type=FrameType.GreetingRequest), (self.group,self.group_port))
         #start sending some data to the peers
         self.frame_sending_thread.start()
         #listen bus and act accordinatly
