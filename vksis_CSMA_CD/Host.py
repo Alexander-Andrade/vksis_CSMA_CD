@@ -16,14 +16,13 @@ class Host:
         self.id = random.randrange(0, int(math.pow(2, struct.calcsize('H')*8)))
         self.group_port = int(group_port)
         self.group = group
-        self.mreq = b''
         self.interf_ip = interface_ip()
-        self.group_sock = socket(AF_INET,SOCK_DGRAM,IPPROTO_UDP)
+        self.group_sock = MixedSocket(AF_INET,SOCK_DGRAM,IPPROTO_UDP)
         #can listen a busy port 
         self.group_sock.setsockopt(SOL_SOCKET,SO_REUSEADDR,1)
         self.group_sock.bind((self.interf_ip,self.group_port)) 
-        self.private_sock = socket(AF_INET,SOCK_DGRAM,IPPROTO_UDP)
-        self.__join_group()
+        self.private_sock = MixedSocket(AF_INET,SOCK_DGRAM,IPPROTO_UDP)
+        self.group_sock.join_group(self.group, self.interf_ip)
         #time of the frame transfer and to leave the medium
         self.frame_transf_interv = kwargs.get('frame_transf_interv',0.7)
         self.last_sending_timestemp = 0
@@ -43,29 +42,15 @@ class Host:
         self.on_jam_come_event.set()  
         self.frame_sending_thread = threading.Thread(target=self.frame_sending_routine,args=(self.on_jam_come_event,))
 
-
-    def __join_group(self):
-        self.mreq = struct.pack('4s4s',inet_aton(self.group),inet_aton(self.interf_ip))
-        self.group_sock.setsockopt(IPPROTO_IP,IP_ADD_MEMBERSHIP,self.mreq)
-        #default
-        self.group_sock.setsockopt(IPPROTO_IP,IP_MULTICAST_TTL,struct.pack('b',1))
-
-    def __unjoin_group(self):
-        self.group_sock.setsockopt(SOL_IP,IP_DROP_MEMBERSHIP,self.mreq)
-
     def group_send(self,msg):
         self.private_sock.sendto(msg,(self.group,self.group_port))
 
     def send(self,msg,addr):
         self.private_sock.sendto(msg,addr)
 
-    def recv(self,num):
-        return self.group_sock.recvfrom(num)
-
     def handle_data(self,peer,frame):
         #skip data
         pass
-    
 
     def reg_unknown_peer(self,peer):
         if peer not in self.peers:
@@ -83,27 +68,20 @@ class Host:
             self.group_sock.recvfrom(1024)
         except OSError as e:
             #this host is first-> send peers-list
-            serialized_peer_list = pickle.dumps(self.peers)
+            #serialized_peer_list = pickle.dumps(self.peers)
             #send serialized list length
-            self.private_sock.sendto(len(serialized_peer_list))
-            self.private_sock.sendto(serialized_peer_list,peer.to_addr())
+            #self.private_sock.sendto(len(serialized_peer_list))
+            #self.private_sock.sendto(serialized_peer_list,peer.to_addr())
         finally:
             self.group_sock.settimeout(None)
-
-    @staticmethod
-    def recv_from_with_discarding(sock,sender_addr,len):
-        while True:
-           data,addr = sock.recvfrom(len)
-           if addr == sender_addr:
-               return data
 
     def handle_greeting_reply(self,peer,frame):
         #get peers-list from other peer
         #get list length
-        peer_list_len,addr = self.group_sock.recvfrom(1024)
+        #peer_list_len,addr = self.group_sock.recvfrom(1024)
         #get peer list
-        serialized_peers_list,addr = self.group_sock
-        pickle.loads(ser_pl) 
+        #serialized_peers_list,addr = self.group_sock
+        #pickle.loads(ser_pl) 
         self.peers.extend()
 
 
