@@ -8,6 +8,7 @@ from FrameType import FrameType
 from net_interface import*
 from Peer import Peer
 from MixedSocket import MixedSocket
+from Frame import Frame
 
 class Host:
 
@@ -20,9 +21,9 @@ class Host:
         self.group_sock = MixedSocket(AF_INET,SOCK_DGRAM,IPPROTO_UDP)
         #can listen a busy port 
         self.group_sock.setsockopt(SOL_SOCKET,SO_REUSEADDR,1)
-        self.group_sock.bind((self.interf_ip,self.group_port)) 
+        self.group_sock.bind((self.interf_ip,self.group_port))
+        self.group_sock.join_group(self.group, self.interf_ip) 
         self.private_sock = MixedSocket(AF_INET,SOCK_DGRAM,IPPROTO_UDP)
-        self.group_sock.join_group(self.group, self.interf_ip)
         #time of the frame transfer and to leave the medium
         self.frame_transf_interv = kwargs.get('frame_transf_interv',0.7)
         self.last_sending_timestemp = 0
@@ -68,21 +69,13 @@ class Host:
             self.group_sock.recvfrom(1024)
         except OSError as e:
             #this host is first-> send peers-list
-            #serialized_peer_list = pickle.dumps(self.peers)
-            #send serialized list length
-            #self.private_sock.sendto(len(serialized_peer_list))
-            #self.private_sock.sendto(serialized_peer_list,peer.to_addr())
+            self.private_sock.obj_sendto(self.peers,peer.to_addr())
         finally:
             self.group_sock.settimeout(None)
 
     def handle_greeting_reply(self,peer,frame):
-        #get peers-list from other peer
-        #get list length
-        #peer_list_len,addr = self.group_sock.recvfrom(1024)
-        #get peer list
-        #serialized_peers_list,addr = self.group_sock
-        #pickle.loads(ser_pl) 
-        self.peers.extend()
+        #get peers-list from other peer 
+        self.peers.extend(self.group_sock.obj_recvfrom())
 
 
     def handle_leaving(self,peer,frame):
@@ -91,6 +84,7 @@ class Host:
 
     def handle_jam(self,peer,frame):
         #stop sending frames while is collision on the media(bus)
+        print('jam')
         self.on_jam_come_event.clear()
         time.sleep(self.frame_transf_interv)
         #resume sending thread
@@ -155,7 +149,7 @@ class Host:
             
     def listen_bus(self):
         #sender_add = sender_ip + sender_port
-        recv_frame,sender_addr=self.recv(1024)
+        recv_frame,sender_addr=self.group_sock.recvfrom(1024)
         frame = Frame(frame=recv_frame)
         #peer = sender_ip + sender_port + sender_id (sender_id is necessary for abylity to hang several processes to the port)
         peer = Peer(sender_addr,frame.host_id)
