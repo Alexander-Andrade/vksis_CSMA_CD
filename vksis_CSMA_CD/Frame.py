@@ -4,8 +4,6 @@ import pickle
 from socket import*
 
 
-
-
 class Frame:
     #for all on the bus
     NOT_ADDRESSED = ('255.255.255.255',0)

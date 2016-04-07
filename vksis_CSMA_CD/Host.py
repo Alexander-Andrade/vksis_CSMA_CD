@@ -28,7 +28,6 @@ class Host:
         self.private_sock = MixedSocket(AF_INET,SOCK_DGRAM,IPPROTO_UDP)
         #time of the frame transfer and to leave the medium
         self.frame_transf_interv = kwargs.get('frame_transf_interv',3)
-        self.last_sending_timestemp = 0
         self.last_recv_timestemp = 0
         self.inter_frame_gap = kwargs.get('inter_frame_gap',1)
         self.min_frame_gap = kwargs.get('min_frame_gap',self.frame_transf_interv)
@@ -96,14 +95,15 @@ class Host:
 
     def handle_jam(self, frame):
         #stop sending frames while is collision on the media(bus)
-        print('jam')
         self.stop_sending_thread()
         time.sleep(self.frame_transf_interv)
+        print('jam,sleep={} s ...'.format(self.frame_transf_interv),end=' ',flush=True)
+        print('resume sending',flush=True)
         #resume sending thread
         self.resume_sending_thread()
              
     def is_medium_busy(self):
-        return self.frame_transf_interv > time.time() - self.last_sending_timestemp
+        return self.frame_transf_interv > time.time() - self.last_recv_timestemp
 
     def is_collision(self):
         return self.frame_transf_interv > time.time() - self.last_recv_timestemp
@@ -118,33 +118,39 @@ class Host:
         while True:
             #checking if medium(bus) is busy (pooling)
             if self.is_medium_busy():
+                #print('medium is busy')
                 continue
             #waiting for Inter Frame Gap elapced
+            print('IFG sleep={} s'.format(self.inter_frame_gap),flush=True)
             time.sleep(self.inter_frame_gap)
             #begin transfer  and select randomly any peer to send frame
             chosen_peer = random.choice(self.peers)
+            print('begin transfer ...', end=' ',flush=True)
             self.private_sock.send_frame_to(Frame(src_addr=self.host_as_peer, dst_addr=chosen_peer, data='data'), (self.group, self.group_port))
-            #catch sending time stemp
-            self.last_sending_timestemp = time.time()
             #checking collisions
             #collision is when time from the last received frame not elapsed
             if self.is_collision():
-                print('collision detected')
+                print('collision detected',end=' ',flush=True)
                 #sending jam-signal
                 self.group_sock.send_frame_to(Frame(src_addr=self.host_as_peer,type=FrameType.Jam), (self.group, self.group_port))
                 n_transf_attempts += 1
                 if n_transf_attempts > self.max_sending_attempts:
                     #fail to send frame
-                    print('fail to send frame')
+                    print('fail to send frame',flush=True)
                 #calculate exponential delay 
                 exp_delay = self.calc_exp_delay(n_transf_attempts)
+                print('exp dalay={} s'.format(exp_delay),flush=True)
                 #and wait this delay
                 time.sleep(exp_delay)
-
+            #transfered succesfully
+            else: 
+                print('success',flush=True)
+                break
 
     def delay_to_prepare_frame(self):
         #randomize sending activity
         nextframe_t = random.uniform(self.min_frame_gap, self.max_frame_gap)
+        print('prepare new frame={} s'.format(nextframe_t),flush=True)
         #waiting when next frame will be ready to transfer
         time.sleep(nextframe_t)
 
