@@ -3,15 +3,16 @@ from FrameType import*
 import pickle
 from socket import*
 
-#for all on the bus
-NOT_ADDRESSED = ('255.255.255.255',0)
+
+
 
 class Frame:
-    
+    #for all on the bus
+    NOT_ADDRESSED = ('255.255.255.255',0)
 
     def __init__(self,**kwargs):
-        self.dst_addr = kwargs.get('dst_addr', NOT_ADDRESSED)
-        self.src_addr = kwargs.get('src_addr', NOT_ADDRESSED)
+        self.dst_addr = kwargs.get('dst_addr', Frame.NOT_ADDRESSED)
+        self.src_addr = kwargs.get('src_addr', Frame.NOT_ADDRESSED)
         self.type = kwargs.get('type',FrameType.Data)
         self.data = kwargs.get('data',b'')
         self.frame = kwargs.get('frame',b'')

@@ -43,9 +43,6 @@
     <Compile Include="net_interface.py">
       <SubType>Code</SubType>
     </Compile>
-    <Compile Include="Peer.py">
-      <SubType>Code</SubType>
-    </Compile>
     <Compile Include="vksis_CSMA_CD.py" />
   </ItemGroup>
   <PropertyGroup>

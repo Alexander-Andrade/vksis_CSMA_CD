@@ -6,7 +6,6 @@ import math
 from socket import*
 from FrameType import FrameType
 from net_interface import*
-from Peer import Peer
 from MixedSocket import MixedSocket
 from Frame import Frame
                                             
@@ -27,16 +26,15 @@ class Host:
         self.group_sock.bind((self.interf_ip,self.group_port))
         self.group_sock.join_group(self.group, self.interf_ip)
         self.private_sock = MixedSocket(AF_INET,SOCK_DGRAM,IPPROTO_UDP)
-        self.private_sock.bind((self.interf_ip,self.private_port))
         #time of the frame transfer and to leave the medium
-        self.frame_transf_interv = kwargs.get('frame_transf_interv',0.7)
+        self.frame_transf_interv = kwargs.get('frame_transf_interv',3)
         self.last_sending_timestemp = 0
         self.last_recv_timestemp = 0
-        self.inter_frame_gap = kwargs.get('inter_frame_gap',0.5)
+        self.inter_frame_gap = kwargs.get('inter_frame_gap',1)
         self.min_frame_gap = kwargs.get('min_frame_gap',self.frame_transf_interv)
-        self.max_frame_gap = kwargs.get('max_frame_gap',6.0)
+        self.max_frame_gap = kwargs.get('max_frame_gap',8)
         self.max_sending_attempts = 16
-        self.host_as_peer = Peer(self.interf_ip, self.id)
+        self.host_as_peer = (self.interf_ip, self.id)
         self.peers = []
         self.max_greeting_reply_time = 3
         self.actions = {FrameType.Data : self.handle_data,
@@ -50,7 +48,7 @@ class Host:
     def group_send(self,msg):
         self.private_sock.sendto(msg,(self.group,self.group_port))
 
-    def handle_data(self,peer,frame):
+    def handle_data(self, frame):
         #skip data
         pass
 
@@ -64,9 +62,10 @@ class Host:
     def resume_sending_thread(self):
         self.stop_sending_thread_event.set()
 
-    def handle_greeting_reguest(self,peer,frame):
+    def handle_greeting_reguest(self, frame):
         #stop sending data, it overflows udp receive buffer
         self.stop_sending_thread()
+        peer = frame.src_addr
         self.reg_unknown_peer(peer)
         #send self peer-list as greeting reply
         #set timeout and listen bus, if enother peer managed first
@@ -77,21 +76,25 @@ class Host:
             self.group_sock.recv_frame_from(type=FrameType.GreetingReply)
         except OSError as e:
             #this host is first-> send peers-list to the private peer socket (frame.data contains private peer socket)
-            self.group_sock.send_frame_to(Frame(dst_addr=peer, type=FrameType.GreetingReply, data=self.peers+[self.host_as_peer]),(self.group,self.group_port))
+            self.group_sock.send_frame_to(Frame(dst_addr=peer, src_addr=self.host_as_peer, type=FrameType.GreetingReply, data=self.peers+[self.host_as_peer]),(self.group,self.group_port))
         finally:
             self.group_sock.settimeout(None)
         self.resume_sending_thread()
 
-    def handle_greeting_reply(self,peer,frame):
+    def handle_greeting_reply(self, frame):
         #get peers-list from other peer 
-        self.peers.extend(self.group_sock.recv_frame_from(type=FrameType.GreetingReply) )
+        self.peers.extend( frame.data )
+        #remove self from peer-list
+        self.peers.remove(self.host_as_peer)
+        #began sending to peers 
+        self.resume_sending_thread()
 
 
-    def handle_leaving(self,peer,frame):
+    def handle_leaving(self, frame):
         if peer in self.peers:
-            self.peers.remove(peer)
+            self.peers.remove(frame.src_addr)
 
-    def handle_jam(self,peer,frame):
+    def handle_jam(self, frame):
         #stop sending frames while is collision on the media(bus)
         print('jam')
         self.stop_sending_thread()
@@ -156,25 +159,25 @@ class Host:
     def am_i_recepient(self, frame):
         #if there is no target address in frame
         #see source address, if it = this host -> this packet ton for tis host
-        if frame.dst_addr == NOT_ADDRESSED and frame.src_addr == self.host_as_peer:
+        if frame.dst_addr == Frame.NOT_ADDRESSED and frame.src_addr == self.host_as_peer:
             return False
-        #directed transfer
+        elif frame.dst_addr == Frame.NOT_ADDRESSED and frame.src_addr != self.host_as_peer:
+            return True
         elif frame.dst_addr == self.host_as_peer:
             return True
-        #like a multicast
         else:
-            return True
+            return False
 
     def group_listening_and_replies(self):
         while True:
-            frame = self.group_sock.recv_frame_from()
+            frame,phis_addr = self.group_sock.recv_frame_from()
             #test if frame is from this host
             if not self.am_i_recepient(frame):
                 continue
             #mark that the foreign frame arrived
             self.last_recv_timestemp = time.time()
             print(repr(frame))
-            self.actions[frame.type](peer,frame)
+            self.actions[frame.type](frame)
 
 
     def run(self):

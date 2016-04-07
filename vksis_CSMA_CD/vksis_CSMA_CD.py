@@ -8,7 +8,6 @@ from net_interface import*
 import time
 from Frame import Frame
 from FrameType import FrameType
-from Peer import Peer
 
 if __name__ == '__main__':
      #test
@@ -29,6 +28,6 @@ if __name__ == '__main__':
      print(ms1.recv_frame_from()) 
      print(ms.recv_frame_from())
      '''
-     #random.seed()
-     #host = Host(sys.argv[1],sys.argv[2])
-     #host.run()
+     random.seed()
+     host = Host(sys.argv[1],sys.argv[2])
+     host.run()
